@@ -9,7 +9,7 @@ pipeline {
     environment {
         POSTGRES_HOST = 'host.docker.internal'
         POSTGRES_PORT = '5433'
-        POSTGRES_DB = 'taskhub'
+        POSTGRES_DB = 'taskhub_ci'
 
         VPS_HOST = '51.83.154.177'
         VPS_USER = 'ubuntu'
@@ -37,7 +37,7 @@ pipeline {
 
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'taskhub-postgres',
+                        credentialsId: 'taskhub-postgres-ci',
                         usernameVariable: 'POSTGRES_USER',
                         passwordVariable: 'POSTGRES_PASSWORD'
                     ),
@@ -46,8 +46,11 @@ pipeline {
                         variable: 'JWT_SECRET'
                     )
                 ]) {
-                    sh './mvnw clean verify'
-                }
+                       sh '''
+                           SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
+                           ./mvnw clean verify
+                       '''
+                   }
             }
         }
 
@@ -57,17 +60,6 @@ pipeline {
                     artifacts: 'target/openapi.json',
                     fingerprint: true
                 )
-            }
-        }
-
-        stage('Approve Production') {
-            steps {
-                timeout(time: 30, unit: 'MINUTES') {
-                    input(
-                        message: 'Deploy TaskHub backend to production?',
-                        ok: 'Deploy'
-                    )
-                }
             }
         }
 
