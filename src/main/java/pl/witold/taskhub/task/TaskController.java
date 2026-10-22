@@ -15,6 +15,7 @@ import pl.witold.taskhub.task.dto.ReplaceTaskRequest;
 import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import pl.witold.taskhub.task.dto.TaskSearchRequest;
 
@@ -36,25 +37,41 @@ public class TaskController {
         return taskService.create(request);
     }
 
+
     @GetMapping
     public Page<TaskResponse> getAll(
             @RequestParam(required = false) String name,
             @RequestParam(required = false) TaskPriority priority,
             @RequestParam(required = false) TaskStatus status,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdFrom,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdTo,
-            @PageableDefault(sort = "id", direction = Sort.Direction.ASC) Pageable pageable
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate createdFrom,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate createdTo,
+            @RequestParam(required = false)
+            List<String> tagCodes,
+            @RequestParam(defaultValue = "false")
+            boolean allTagsIncluded,
+            @PageableDefault(
+                    sort = "id",
+                    direction = Sort.Direction.ASC
+            )
+            Pageable pageable
     ) {
         TaskSearchRequest request = new TaskSearchRequest(
                 name,
                 priority,
                 status,
                 createdFrom,
-                createdTo
+                createdTo,
+                tagCodes,
+                allTagsIncluded
         );
 
         return taskService.getAll(request, pageable);
     }
+
     @GetMapping("/{id}")
     public TaskResponse getById(@PathVariable Long id) {
         return taskService.getById(id);

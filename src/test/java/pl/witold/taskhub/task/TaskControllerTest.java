@@ -6,16 +6,23 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import pl.witold.taskhub.auth.JwtService;
 import pl.witold.taskhub.task.dto.TaskResponse;
+import pl.witold.taskhub.task.dto.TaskSearchRequest;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.*;
+import org.mockito.ArgumentCaptor;
 
 @WebMvcTest(TaskController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -67,4 +74,35 @@ class TaskControllerTest {
         mockMvc.perform(get("/api/tasks/99"))
                 .andExpect(status().isNotFound());
     }
+
+
+    @Test
+    void getAll_shouldPassTagFiltersToService() throws Exception {
+        when(taskService.getAll(
+                any(TaskSearchRequest.class),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        mockMvc.perform(get("/api/tasks")
+                        .param("tagCodes", "frontend", "backend")
+                        .param("allTagsIncluded", "true"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<TaskSearchRequest> captor =
+                ArgumentCaptor.forClass(TaskSearchRequest.class);
+
+        verify(taskService).getAll(
+                captor.capture(),
+                any(Pageable.class)
+        );
+
+        TaskSearchRequest request = captor.getValue();
+
+        assertEquals(
+                List.of("frontend", "backend"),
+                request.tagCodes()
+        );
+        assertTrue(request.allTagsIncluded());
+    }
+
 }
