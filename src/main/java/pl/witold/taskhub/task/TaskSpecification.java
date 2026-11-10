@@ -6,6 +6,9 @@ import pl.witold.taskhub.tag.Tag;
 
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Subquery;
+import pl.witold.taskhub.user.Role;
+import pl.witold.taskhub.user.User;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -117,6 +120,35 @@ public class TaskSpecification {
             return cb.greaterThanOrEqualTo(
                     subquery,
                     requiredCount
+            );
+        };
+    }
+
+    public static Specification<Task> visibleTo(User user) {
+        return (root, query, cb) -> {
+
+            var sameTenant = cb.equal(
+                    root.get("tenant").get("id"),
+                    user.getTenant().getId()
+            );
+
+            if (user.getRole() == Role.ADMIN) {
+                return sameTenant;
+            }
+
+            var createdByUser = cb.equal(
+                    root.get("createdBy").get("id"),
+                    user.getId()
+            );
+
+            var assignedToUser = cb.equal(
+                    root.get("assignedTo").get("id"),
+                    user.getId()
+            );
+
+            return cb.and(
+                    sameTenant,
+                    cb.or(createdByUser, assignedToUser)
             );
         };
     }

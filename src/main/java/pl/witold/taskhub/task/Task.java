@@ -5,6 +5,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import pl.witold.taskhub.tag.Tag;
+import pl.witold.taskhub.tenant.Tenant;
+import pl.witold.taskhub.user.User;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -53,6 +55,18 @@ public class Task {
             }
     )
     private Set<Tag> tags = new HashSet<>();
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tenant_id", nullable = false, updatable = false)
+    private Tenant tenant;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "created_by_id", nullable = false, updatable = false)
+    private User createdBy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_to_id")
+    private User assignedTo;
 
     public Task(String name, String description, TaskPriority priority) {
         this.name = name;
@@ -109,5 +123,14 @@ public class Task {
         if (tags != null) {
             this.tags.addAll(tags);
         }
+    }
+
+    public void setOwnership(Tenant tenant, User createdBy) {
+        this.tenant = tenant;
+        this.createdBy = createdBy;
+    }
+
+    public void assignTo(User user) {
+        this.assignedTo = user;
     }
 }

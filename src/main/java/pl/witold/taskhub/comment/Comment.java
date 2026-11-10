@@ -5,6 +5,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import pl.witold.taskhub.task.Task;
+import pl.witold.taskhub.user.User;
 
 import java.time.LocalDateTime;
 
@@ -31,9 +32,14 @@ public class Comment {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
-    public Comment(String content, Task task) {
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "created_by_id", nullable = false, updatable = false)
+    private User createdBy;
+
+    public Comment(String content, Task task, User createdBy) {
         this.content = content;
         this.task = task;
+        this.createdBy = createdBy;
     }
 
     @PrePersist

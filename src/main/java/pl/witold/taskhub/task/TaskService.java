@@ -2,12 +2,20 @@ package pl.witold.taskhub.task;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import pl.witold.taskhub.tag.Tag;
 import pl.witold.taskhub.tag.TagRepository;
 import pl.witold.taskhub.tag.dto.TagResponse;
 import pl.witold.taskhub.task.dto.*;
+import pl.witold.taskhub.user.CurrentUserService;
+import pl.witold.taskhub.user.Role;
+import pl.witold.taskhub.user.User;
+import pl.witold.taskhub.user.UserRepository;
+import pl.witold.taskhub.user.dto.UserSummaryResponse;
 
 import java.util.Comparator;
 import java.util.HashSet;
@@ -20,32 +28,71 @@ public class TaskService {
 
     private final TaskRepository taskRepository;
     private final TagRepository tagRepository;
+    private final CurrentUserService currentUserService;
+    private final TaskAuthorizationService authorizationService;
+    private final UserRepository userRepository;
 
-    public TaskService(TaskRepository taskRepository, TagRepository tagRepository) {
+    public TaskService(TaskRepository taskRepository, TagRepository tagRepository, CurrentUserService currentUserService, TaskAuthorizationService authorizationService, UserRepository userRepository) {
         this.taskRepository = taskRepository;
         this.tagRepository = tagRepository;
+        this.currentUserService = currentUserService;
+        this.authorizationService = authorizationService;
+        this.userRepository = userRepository;
     }
 
     public TaskResponse create(CreateTaskRequest request) {
+        User currentUser = currentUserService.getCurrentUser();
+
         Task task = new Task(
                 request.name(),
                 request.description(),
                 request.priority()
         );
 
+        task.setOwnership(
+                currentUser.getTenant(),
+                currentUser
+        );
+
+        if (request.assignedToId() != null) {
+            if (currentUser.getRole() != Role.ADMIN) {
+                throw new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "Only admin can assign tasks"
+                );
+            }
+
+            User assignee = resolveAssignee(
+                    request.assignedToId(),
+                    currentUser
+            );
+
+            task.assignTo(assignee);
+        }
+
         task.replaceTags(resolveTags(request.tagCodes()));
 
         Task savedTask = taskRepository.save(task);
-        return toResponse(savedTask);
+        return toResponse(savedTask, currentUser);
     }
 
     @Transactional(readOnly = true)
-    public Page<TaskResponse> getAll(TaskSearchRequest request, Pageable pageable) {
-        return taskRepository.findAll(TaskSpecification.withFilters(request), pageable)
-                .map(this::toResponse);
+    public Page<TaskResponse> getAll(
+            TaskSearchRequest request,
+            Pageable pageable
+    ) {
+        User user = currentUserService.getCurrentUser();
+
+        var specification = Specification.allOf(
+                TaskSpecification.withFilters(request),
+                TaskSpecification.visibleTo(user)
+        );
+
+        return taskRepository.findAll(specification, pageable)
+                .map(task -> toResponse(task, user));
     }
 
-    private TaskResponse toResponse(Task task) {
+    private TaskResponse toResponse(Task task, User currentUser) {
         return new TaskResponse(
                 task.getId(),
                 task.getName(),
@@ -61,18 +108,38 @@ public class TaskService {
                                 tag.getColor()
                         ))
                         .sorted(Comparator.comparing(TagResponse::label))
-                        .toList()
+                        .toList(),
+
+                task.getTenant().getId(),
+
+                new UserSummaryResponse(
+                        task.getCreatedBy().getId(),
+                        task.getCreatedBy().getUsername()
+                ),
+
+                task.getAssignedTo() != null
+                        ? new UserSummaryResponse(
+                        task.getAssignedTo().getId(),
+                        task.getAssignedTo().getUsername()
+                )
+                        : null,
+
+                authorizationService.canEdit(task, currentUser),
+                authorizationService.canDelete(task, currentUser)
         );
     }
 
     @Transactional(readOnly = true)
     public TaskResponse getById(Long id) {
         Task task = findTaskById(id);
-        return toResponse(task);
+        User user = currentUserService.getCurrentUser();
+        return toResponse(task, user);
     }
 
     public TaskResponse update(Long id, UpdateTaskRequest request) {
         Task task = findTaskById(id);
+        User user = currentUserService.getCurrentUser();
+        authorizationService.requireEdit(task, user);
 
         if (request.name() != null) {
             task.updateName(request.name());
@@ -96,11 +163,13 @@ public class TaskService {
 
         Task savedTask = taskRepository.save(task);
 
-        return toResponse(savedTask);
+        return toResponse(savedTask, user);
     }
 
     public TaskResponse replace(Long id, ReplaceTaskRequest request) {
         Task task = findTaskById(id);
+        User user = currentUserService.getCurrentUser();
+        authorizationService.requireEdit(task, user);
         task.updateName(request.name());
         task.updateDescription(request.description());
         task.updatePriority(request.priority());
@@ -109,17 +178,27 @@ public class TaskService {
 
         Task savedTask = taskRepository.save(task);
 
-        return toResponse(savedTask);
+        return toResponse(savedTask, user);
     }
 
     public void delete(Long id) {
         Task task = findTaskById(id);
+
+        User user = currentUserService.getCurrentUser();
+        authorizationService.requireDelete(task, user);
+
         taskRepository.delete(task);
     }
 
     private Task findTaskById(Long id) {
-        return taskRepository.findById(id)
+        Task task = taskRepository.findById(id)
                 .orElseThrow(() -> new TaskNotFoundException(id));
+
+        User user = currentUserService.getCurrentUser();
+
+        authorizationService.requireView(task, user);
+
+        return task;
     }
 
     private Set<Tag> resolveTags(List<String> tagCodes) {
@@ -138,4 +217,32 @@ public class TaskService {
         return new HashSet<>(tags);
     }
 
+    private User resolveAssignee(
+            Long userId,
+            User currentUser
+    ) {
+        User assignee = userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST,
+                                "Invalid assignee"
+                        )
+                );
+
+        if (!assignee.isEnabled()
+                || !assignee.getTenant().getId()
+                .equals(currentUser.getTenant().getId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid assignee"
+            );
+        }
+
+        return assignee;
+    }
+
+    @Transactional(readOnly = true)
+    public Task getAccessibleTask(Long taskId) {
+        return findTaskById(taskId);
+    }
 }

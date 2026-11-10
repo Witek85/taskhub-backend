@@ -18,6 +18,8 @@ public record CreateTaskRequest(
         @NotNull(message = "Priority is required")
         TaskPriority priority,
 
-        List<String> tagCodes
+        List<String> tagCodes,
+
+        Long assignedToId
 ) {
 }
